@@ -1,0 +1,109 @@
+
+import RPi.GPIO as GPIO    # Import Raspberry Pi GPIO library
+from time import sleep     # Import the sleep function from the time module
+import requests
+
+TOKEN = "A1E-0rxa5NT8UljyPhWLqhfNP9FmjPJZHq"  # Put your TOKEN here
+DEVICE_LABEL = "agri"  # Put your device label here 
+VARIABLE_LABEL_1 = "moisture"  # Put your first variable label here
+VARIABLE_LABEL_2 = "status"  # Put your second variable label here
+VARIABLE_LABEL_3 = "mode"  # Put your second variable label here
+VARIABLE_LABEL_4 = "motor_control"  # Put your second variable label here
+VARIABLE_LABEL_5 = "motor_status"  # Put your second variable label here
+
+GPIO.setwarnings(False)    # Ignore warning for now
+GPIO.setmode(GPIO.BOARD)   # Use physical pin numbering
+
+PUMP = 11
+SWITCH = 12
+SOIL_MOISTURE = 13
+RELAY = 15
+mode = 1
+
+GPIO.setup(PUMP, GPIO.OUT, initial=GPIO.LOW)   #
+GPIO.setup(RELAY, GPIO.OUT, initial=GPIO.LOW)   #
+GPIO.setup(SWITCH, GPIO.IN)   #
+GPIO.setup(SOIL_MOISTURE, GPIO.IN)   #
+
+def build_payload(variable, value):
+    # Creates two random values for sending data
+    payload = {variable: value}
+    return payload
+
+
+def post_request(payload):
+    # Creates the headers for the HTTP requests
+    url = "http://app.ubidots.com"
+    url = "{}/api/v1.6/devices/{}".format(url, DEVICE_LABEL)
+    headers = {"X-Auth-Token": TOKEN, "Content-Type": "application/json"}
+
+    # Makes the HTTP requests
+    status = 400
+    attempts = 0
+    while status >= 400 and attempts <= 5:
+        req = requests.post(url=url, headers=headers, json=payload)
+        status = req.status_code
+        attempts += 1
+        sleep(1)
+
+    # Processes results
+    if status >= 400:
+        print("[ERROR] Could not send data after 5 attempts, please check \
+            your token credentials and internet connection")
+        return False
+
+    print("[INFO] request made properly, your device is updated")
+    return True
+
+def get_var(device, variable):
+    try:
+        url = "http://app.ubidots.com/"
+        url = "{0}api/v1.6/devices/{1}/{2}/".format(url, device, variable)
+        headers = {"X-Auth-Token": TOKEN, "Content-Type": "application/json"}
+        req = requests.get(url=url, headers=headers)
+        return req.json()['last_value']['value']
+    except:
+        pass
+
+
+if __name__ == "__main__":
+
+    while True:
+        soil = GPIO.input(SOIL_MOISTURE)        
+        switch = GPIO.input(SWITCH)
+        payload = build_payload(VARIABLE_LABEL_1, soil)
+        post_request(payload)
+        
+        mode = get_var(DEVICE_LABEL, VARIABLE_LABEL_3)
+        print(mode)
+        mode = int(mode)
+        print("Mode :{}".format(mode))
+        if mode == 1:
+            if soil == 0:
+                GPIO.output(PUMP, GPIO.HIGH)
+                payload = build_payload(VARIABLE_LABEL_5, 1)
+                post_request(payload)
+                
+            else:
+                GPIO.output(PUMP, GPIO.LOW)
+                payload = build_payload(VARIABLE_LABEL_5, 0)
+                post_request(payload)
+        elif mode == 0:
+            control = get_var(DEVICE_LABEL, VARIABLE_LABEL_4)
+            print("Control :{}".format(control))
+            control = int(control)
+            if control == 1:
+                GPIO.output(PUMP, GPIO.HIGH)
+            elif control == 0:
+                GPIO.output(PUMP, GPIO.LOW)
+
+        if switch == 1:
+            GPIO.output(RELAY, GPIO.HIGH)
+            payload = build_payload(VARIABLE_LABEL_2, 1)
+            post_request(payload)
+        else:
+            GPIO.output(RELAY, GPIO.LOW)
+            payload = build_payload(VARIABLE_LABEL_2, 0)
+            post_request(payload)
+            
+        sleep(1)
